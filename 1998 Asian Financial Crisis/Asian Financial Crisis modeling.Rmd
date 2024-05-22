@@ -1,0 +1,350 @@
+---
+title: "Asian Financial Crisis"
+author: "Mathew Attipetty"
+date: "2023-10-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+ArchMecon <- read_csv("ArchMecon.csv")
+View(ArchMecon)
+# Filter the dataset to only keep rows where the country name is "INDONESIA"
+IndonesiaData <- ArchMecon %>% filter(`Country Name` == "INDONESIA")
+
+# View the filtered data
+View(IndonesiaData)
+
+CleanedData <- IndonesiaData %>% filter_all(all_vars(!is.na(.)))
+
+write.csv(CleanedData, "CleanedData.csv", row.names = FALSE)
+
+
+
+df_cleaned <- CleanedData %>% 
+  select(-c("Arrangement Number", "Revised End Date", "Duration Of Annual Arrangement From", 
+            "Duration Of Annual Arrangement To", "Program Type", "Review Type", "Review Sequence", 
+            "Board Doc. No.", "FY Start Month", "FY End Month"))
+
+# Now `df_cleaned` contains the dataset without the columns we decided to discard.
+# View the filtered data
+view(df_cleaned)
+
+write.csv(df_cleaned, "df_cleaned.csv", row.names = FALSE)
+```
+
+```{r}
+# Assuming the data provided is saved as a dataframe called 'df'
+df_cleaned$T[df_cleaned$T == "NULL"] <- NA
+df_cleaned$T <- as.numeric(df_cleaned$T)
+
+df_cleaned <- df_cleaned %>%
+  mutate(across(starts_with("T"), ~ifelse(. == "NULL", NA, as.numeric(.))))
+
+options(scipen=999)  # Disable scientific notation
+
+mean_values <- df_cleaned %>%
+  group_by(Description) %>%
+  summarize(Mean_Value_T = round(mean(T, na.rm = TRUE), 2))
+
+
+print(mean_values)
+# 2. Visualization: Trend over time
+# We'll melt the data to get a long format suitable for ggplot2
+
+long_data <- df_cleaned %>%
+  pivot_longer(cols = starts_with("T"), 
+               names_to = "Year", 
+               values_to = "Value") %>%
+  filter(!is.na(Value) & Value != "NULL") %>%
+  mutate(Value = as.numeric(Value))
+
+# Sample visualization for one of the indicators
+selected_indicator <- "Broad Money (domestic currency, billions) 4/"
+
+ggplot(long_data %>% filter(Description == selected_indicator), aes(x = Year, y = Value, group = Description)) +
+  geom_line() +
+  geom_point() +
+  labs(title = paste("Trend over time for", selected_indicator), 
+       x = "Year", 
+       y = "Value") +
+  theme_minimal()
+
+
+# 3. Analyze variation across different 'Description' categories
+# For example, we can summarize the mean value at T for each description
+df_summary <- df_cleaned %>%
+  group_by(Description) %>%
+  summarise(Mean_Value_T = mean(T, na.rm = TRUE))
+
+print(df_summary)
+```
+```{r}
+df_long <- df_cleaned %>%
+  pivot_longer(cols = starts_with("T"), 
+               names_to = "Year_Relative", 
+               values_to = "Value") %>%
+  mutate(Year_Actual = 1998 + as.numeric(str_replace_all(Year_Relative, c("T" = "", "\\+" = ""))))
+
+# Choose a specific indicator from your dataset
+selected_indicator <- "Change in Gross Reserves (-increase, including valuation changes)"
+
+ggplot(df_long %>% filter(Description == selected_indicator), 
+       aes(x = `Program year`, y = Value, group = Description)) +
+  geom_line() +
+  geom_point() +
+  labs(title = paste("Trend over time for", selected_indicator), 
+       x = "Year", 
+       y = "Value") +
+  theme_minimal()
+
+df_long$Value <- as.numeric(df_long$Value)
+```
+
+```{r}
+df_long <- df_long %>% mutate(Value = as.numeric(Value))
+# Sample list of selected descriptions
+selected_descriptions <- c("Change in Gross Reserves (-increase, including valuation changes)", 
+                          "Use of Fund Credit, net", 
+                          "Current Account (excl. off transfers) (A-B+C-D-E)")
+
+# Filter the dataset
+filtered_data <- df_long %>% filter(Description %in% selected_descriptions)
+
+# Ensure the Value column is numeric
+filtered_data$Value <- as.numeric(filtered_data$Value)
+
+# Plotting
+ggplot(data = filtered_data, aes(x = Time, y = Value, group = Description)) +
+  geom_line(aes(color = Description)) +
+  geom_point() +
+  labs(title = "Trends over Time for Selected Descriptions", x = "Time Period (Relative to T)", y = "Value (US$ bn)") +
+  theme_minimal() +
+  facet_wrap(~ Description, scales = "free_y") +
+  theme(legend.position = "right",               # Change if you want to position the legend elsewhere
+        legend.text = element_text(size = 8),     # Adjust the text size in the legend
+        legend.key.size = unit(1, "cm"),          # Adjust the size of the legend key
+        legend.title = element_text(size = 9))    # Adjust the title size of the legend
+
+
+```
+
+```{r}
+# Filter out non-numeric values in the Value column
+df_long_filtered <- df_long %>% filter(is.numeric(Value))
+
+# Compute descriptive statistics
+summary_stats <- df_long_filtered %>%
+  group_by(Description) %>%
+  summarise(
+    mean = mean(Value, na.rm = TRUE),
+    median = median(Value, na.rm = TRUE),
+    min_value = min(Value, na.rm = TRUE),
+    max_value = max(Value, na.rm = TRUE),
+    sd = sd(Value, na.rm = TRUE)
+  ) %>%
+  arrange(-mean)
+
+print(summary_stats)
+```
+```{r}
+library(ggplot2)
+
+subset_data <- df_long[df_long$Description == "Exchange rate vis-a-vis numeraire (average)",]
+ggplot(subset_data, aes(x = `Program year`, y = Value)) +
+  geom_line() +
+  labs(title = "Exchange rate vis-a-vis numeraire over Time", x = "Program year", y = "Value") +
+  theme_minimal()
+
+
+```
+
+```{r}
+subset_data <- df_long[df_long$Description == "Scheduled Debt Service",]
+ggplot(subset_data, aes(x = `Program year`, y = Value)) +
+  geom_bar(stat="identity", position="dodge") +
+  labs(title = "Scheduled Debt Service over Time", x = "Program year", y = "Value") +
+  theme_minimal()
+
+```
+
+```{r}
+subset_data <- df_long[df_long$Description == "Projected New Rescheduling",]
+ggplot(subset_data, aes(x = `Program year`, y = Value)) +
+  geom_bar(stat="identity", position="dodge") +
+  labs(title = "Projected New Rescheduling over Time", x = "Program year", y = "Value") +
+  theme_minimal()
+
+```
+
+```{r}
+subset_data <- df_long[df_long$Description == "Real GDP Growth (in percent)",]
+ggplot(subset_data, aes(x = `Program year`, y = Value)) +
+  geom_line() +
+  labs(title = "Real GDP Growth (in percent) over Time", x = "Program year", y = "Growth Rate") +
+  theme_minimal()
+
+```
+Reshaping the dataset
+```{r}
+# Reshaping the MONA dataset from long to wide format
+df_wide <- df_long %>%
+  spread(Year_Relative, Value)
+write.csv(df_wide, "df_wide.csv", row.names = FALSE)
+head(df_wide)
+```
+
+```{r}
+wb_data <- read_csv("wb_data.csv")
+
+library(tseries)
+library(lmtest)
+
+# Assuming your data is in 'wb_data'
+wb_data_long <- wb_data %>%
+  pivot_longer(cols = `1989 [YR1989]`:`2002 [YR2002]`, names_to = "Year", values_to = "Value") %>%
+  mutate(Year = as.integer(str_extract(Year, "\\d{4}")))
+
+head(wb_data_long)
+
+```
+EDA
+```{r}
+library(ggplot2)
+ggplot(wb_data_long[wb_data_long$`Series Name` == "GDP growth (annual %)", ], aes(x=Year, y=Value)) +
+  geom_line() +
+  labs(title="GDP Growth Over Time", x="Year", y="GDP Growth (%)") +
+  theme_minimal()
+
+```
+
+
+
+Regression Modeling:
+```{r}
+# Sample data setup, replace this with reading your csv
+wb_data <- read_csv("wb_data.csv")
+
+cleaned_data <- wb_data %>%
+  filter(!(`Country Name` %in% c("Data from database: World Development Indicators", "Last Updated: 09/19/2023", NA)))
+
+# Now, reshape the data
+reshaped_data <- cleaned_data %>%
+  pivot_longer(cols = `1989 [YR1989]`:`2002 [YR2002]`, 
+               names_to = "Year", 
+               values_to = "Value") %>%
+  mutate(Year = as.numeric(str_extract(Year, "\\d{4}"))) %>%
+  filter(!is.na(Year)) %>% # Remove rows where Year is NA
+  group_by(Year, `Country Name`, `Series Name`) %>%
+  summarize(Value = first(Value), .groups = 'drop') %>%
+  pivot_wider(names_from = `Series Name`, values_from = Value)
+
+# View the reshaped data
+print(reshaped_data)
+
+wb_data <- reshaped_data
+wb_data
+```
+
+```{r}
+# Replace ".." with NA
+wb_data[wb_data == ".."] <- NA
+
+# Update numeric columns
+numeric_columns <- c("Agriculture, forestry, and fishing, value added (annual % growth)",
+                     "Exports of goods and services (BoP, current US$)",
+                     "Foreign direct investment, net (BoP, current US$)",
+                     "GDP growth (annual %)",
+                     "Imports of goods and services (BoP, current US$)",
+                     "Manufacturing, value added (annual % growth)",
+                     "Net trade in goods and services (BoP, current US$)",
+                     "Services, value added (annual % growth)",
+                     "Tariff rate, applied, simple mean, all products (%)",
+                     "Total reserves minus gold (current US$)")
+
+# Convert specified columns to numeric
+wb_data[numeric_columns] <- lapply(wb_data[numeric_columns], as.numeric)
+
+# Create crisis_dummy variable
+wb_data$crisis_dummy <- ifelse(wb_data$Year >= 1998, 1, 0)
+
+# Update the linear model with correct variables
+model <- lm(`GDP growth (annual %)` ~ Year + crisis_dummy + `Net trade in goods and services (BoP, current US$)` + `Manufacturing, value added (annual % growth)` + `Total reserves minus gold (current US$)`, data = wb_data)
+
+# View model summary
+summary(model)
+
+# Print the first 15 rows to check data
+head(wb_data, 15)
+
+# Wald test for crisis_dummy
+waldtest(model, ~ crisis_dummy)
+```
+
+```{r}
+# Create the crisis dummy variable
+wb_data$crisis_dummy <- ifelse(wb_data$Year >= 1998, 1, 0)
+
+# Linear model focusing on the impact of the crisis
+model <- lm(`GDP growth (annual %)` ~ crisis_dummy + 
+            `Exports of goods and services (BoP, current US$)` +
+            `Imports of goods and services (BoP, current US$)` +
+            `Net trade in goods and services (BoP, current US$)` +
+            `Foreign direct investment, net (BoP, current US$)` +
+            `Total reserves minus gold (current US$)` +
+            `Agriculture, forestry, and fishing, value added (annual % growth)` +
+            `Manufacturing, value added (annual % growth)` +
+            `Services, value added (annual % growth)` +
+            `Tariff rate, applied, simple mean, all products (%)`,
+            data = wb_data)
+
+# View model summary
+summary(model)
+```
+
+```{r}
+# Convert Year to a factor for fixed effects
+wb_data$Year <- as.factor(wb_data$Year)
+
+# Updated linear model with time fixed effects
+model_fe <- lm(`GDP growth (annual %)` ~ crisis_dummy + 
+              `Exports of goods and services (BoP, current US$)` +
+              `Imports of goods and services (BoP, current US$)` +
+              `Net trade in goods and services (BoP, current US$)` +
+              `Foreign direct investment, net (BoP, current US$)` +
+              `Total reserves minus gold (current US$)` +
+              `Agriculture, forestry, and fishing, value added (annual % growth)` +
+              `Manufacturing, value added (annual % growth)` +
+              `Services, value added (annual % growth)` +
+              `Tariff rate, applied, simple mean, all products (%)` +
+              Year, # Adding year as a fixed effect
+              data = wb_data)
+
+# View model summary
+summary(model_fe)
+```
+
+```{r}
+# Assuming wb_data and numeric_columns are already defined and transformed
+
+# Create a simplified model to avoid multicollinearity and singularity issues
+model_simplified <- lm(`GDP growth (annual %)` ~ crisis_dummy + 
+                       `Net trade in goods and services (BoP, current US$)` +
+                       `Foreign direct investment, net (BoP, current US$)` +
+                       `Total reserves minus gold (current US$)`,
+                       data = wb_data)
+
+# View model summary
+summary(model_simplified)
+```
+

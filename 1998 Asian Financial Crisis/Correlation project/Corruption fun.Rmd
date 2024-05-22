@@ -1,0 +1,93 @@
+---
+title: "Correlation Project"
+author: "Mathew Attipetty"
+date: "2023-04-12"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(lubridate)
+library(lmtest)
+library(psych)
+install.packages('psych'
+)
+library(corrplot)
+library(RColorBrewer)
+Corruption <- read_csv("Corruption Index.csv")
+
+# Convert "Tax revenue (% of GDP)" column to numeric
+Corruption$`Tax revenue (% of GDP)` <- as.numeric(Corruption$`Tax revenue (% of GDP)`)
+# Remove the "Year" variable from the dataset
+Corruption_without_year <- select(Corruption, -Year)
+# Convert all columns to appropriate data types
+Corruption_without_year <- type.convert(Corruption_without_year, as.is = TRUE)
+# Rename variables
+Corruption_without_year <- rename(
+  Corruption_without_year, 
+  GDP_growth = `GDP growth (annual %)`,
+  Trade = `Trade (% of GDP)`,
+  FDI = `Foreign direct investment, net inflows (% of GDP)`,
+  Tax_revenue = `Tax revenue (% of GDP)`,
+  Corruption_Index = `Corruption Index`
+)
+# Create a correlation matrix for all the remaining variables
+corr_matrix <- cor(Corruption_without_year)
+```
+```{r cars}
+head(Corruption)
+
+corr_matrix
+# Visualize the correlation matrix using corrplot
+corrplot(corr_matrix, type = "upper", method = "circle", tl.col = "black", col = colorRampPalette(brewer.pal(3, "RdYlBu"))(9))
+
+
+```
+  This correlation matrix illustrates the pairwise correlations among five variables extracted from the World Bank and Transparency International databases. The variables considered are GDP growth (annual %), trade (% of GDP), tax revenue (% of GDP), foreign direct investment (FDI) net inflows as a % of GDP, and corruption perceptions index (ranging from 0 for very corrupt to 100 for very clean). The choice to express the economic variables as percentages of GDP is driven by the importance of measuring their relative shares rather than absolute values. These indices hold great significance when assessing the development of an economy. By using percentages, there is insight into the relative importance of each variable to an economy.
+
+  The corruption index serves as an indicator, with lower values indicating higher levels of corruption. Hence, a negative correlation between a variable and the corruption index suggests that an increase in that variable leads to a decrease in the corruption index. This association implies that as the corruption index decreases or approaches 0, the country becomes increasingly corrupt.
+
+  In the correlation matrix, each cell represents the correlation coefficient between two variables, ranging from -1 (indicating a perfect negative correlation) to 1 (indicating a perfect positive correlation). The data spans the years 1997-2021, allowing for assessment of the correlation outcomes following the Asian Financial Crisis in Indonesia. The hypothesis is that trade will exhibit the strongest correlation within the matrix and that it will be negatively associated with the corruption index as Indonesia is a special case when it comes to FDI and investor relations.
+
+GDP growth is positively correlated with FDI (r = 0.38) and slightly positively correlated with the corruption index (r = 0.28).
+Trade is negatively correlated with GDP growth (r = -0.64) and the corruption index (r = -0.78), indicating that countries with higher levels of trade tend to have higher levels of corruption and slower GDP growth. This isn't surprising as countries that rely on an export oriented economy are within the developing demographic sphere of countries that has issues with corruption. 
+Tax revenue is positively correlated with trade (r = 0.73) and negatively correlated with FDI (r = -0.43) and the corruption index (r = -0.70), suggesting that countries with higher levels of tax revenue tend to have more trade and corruption but lower levels of FDI.
+FDI is positively correlated with the corruption index (r = 0.75), indicating that countries with higher levels of FDI tend to have lower levels of corruption. This result is interesting and would have to be further investigated with the significance level. 
+The corruption index is negatively correlated with trade (r = -0.78) and tax revenue (r = -0.70), suggesting that countries with higher levels of corruption tend to have higher levels of trade and higher tax revenue. 
+
+  Overall, the correlation matrix suggests that trade, FDI, tax revenue, and corruption are closely interconnected in the global economy. Countries that have high levels of trade and tax revenue tend to have higher levels of corruption, while countries that have high levels of FDI tend to have lower levels of corruption. These findings validate the the initial hypothesis that trade would be negatively correlated with the corruption index. 
+
+
+```{r pressure, echo=FALSE}
+# Test the statistical significance of the correlation matrix
+p_matrix <- cor.mtest(Corruption_without_year)$p
+# Clean data by removing rows with missing values
+Corruption_clean <- na.omit(Corruption_without_year)
+# Create correlation matrix
+corr_matrix <- cor(Corruption_clean)
+# Calculate p-values for the correlation matrix
+p_matrix <- cor.mtest(Corruption_clean)$p
+p_matrix
+# Subset the p-value matrix to only include non-missing variables
+pNew <- p_matrix[row.names(corr_matrix), colnames(corr_matrix)]
+# Visualize the correlation matrix and p-values using corrplot
+```
+
+## significant level stars (*** = .01, ** = .05, * = .1)
+```{r}
+# Visualize the correlation matrix and p-values using corrplot
+corrplot(corr_matrix, p.mat = p_matrix, method = 'color', diag = FALSE, type = 'upper',
+         sig.level = c(0.01, 0.05, 0.1), pch.cex = 0.9,
+         insig = 'label_sig', pch.col = 'grey20', order = 'AOE')
+```
+
+## All p-values
+```{r}
+# Visualize the correlation matrix and p-values using corrplot
+corrplot(corr_matrix, p.mat = p_matrix, insig = 'p-value', sig.level = -1)
+```
+
+  These tables present the p-values associated with the correlation coefficients in the correlation matrix between the five variables. GDP growth is significantly correlated with trade (p = 0.0025) and has a marginally significant correlation with FDI (p = 0.094), but is not significantly correlated with tax revenue or the corruption index. Trade is significantly negatively correlated with GDP growth (p = 0.0025), tax revenue (p = 0.00025), and the corruption index (p = 0.00005). Tax revenue is significantly positively correlated with trade (p = 0.00025) but is not significantly correlated with GDP growth, FDI, or the corruption index.FDI is significantly correlated with the corruption index (p = 0.00014) but is not significantly correlated with GDP growth, trade, or tax revenue.The corruption index is significantly negatively correlated with trade (p = 0.00005), tax revenue (p = 0.00059), and FDI (p = 0.00000), but is not significantly correlated with GDP growth. With the FDI being statistically significant this 
+
+  The p-values overall provide evidence supporting statistically significant relationships between trade, tax revenue, FDI, and the corruption index. However, the relationship between GDP growth and the other variables is less clear. Notably, the significant negative correlation between trade and corruption implies that improving trade relations and reducing corruption could have positive effects on economic growth and development confirming my initial hypothesis about the importance of trade. However this is merely correlational and not casual, as there are structural and policy elements that influence the outcomes of each variable in this situation. These surface level findings are consistent with previous econometric models, which suggest that trade has endogenous effects related to transparency, as it establishes a connection to the international market that operates with conditions independent from the domestic government apparatus. Previous research by Brunetti and Weder in 2001 emphasizes trade as a control variable when examining the effects of press freedom on corruption. The findings on trade are not surprising, considering that trade deals face external scrutiny this provides incentives for the domestic government to honor agreements in order to continue reaping the economic benefits.

@@ -1,0 +1,291 @@
+---
+title: "LASSO Corruption"
+author: "Mathew Attipetty"
+date: "2023-05-03"
+output:
+  pdf_document: default
+  html_document:
+    df_print: paged
+---
+```{r setup,warning=FALSE, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load necessary packages
+library(tidyverse)
+library(lubridate)
+library(lmtest)
+library(data.table)
+library(githubinstall)
+library(EventStudy)
+library(magrittr)
+
+RF_FDI <- read_csv("RF_FDI.csv")
+RF_FDI
+
+
+RF_FDI <- RF_FDI %>%
+  mutate(across(c(`1965 [YR1965]`, `1966 [YR1966]`, `1967 [YR1967]`, `1968 [YR1968]`, `1969 [YR1969]`, `1970 [YR1970]`, `1971 [YR1971]`, `1972 [YR1972]`, `1973 [YR1973]`, `1974 [YR1974]`, `1975 [YR1975]`, `1976 [YR1976]`, `1977 [YR1977]`, `1978 [YR1978]`, `1979 [YR1979]`, `1980 [YR1980]`, `1981 [YR1981]`, `1982 [YR1982]`, `1983 [YR1983]`, `1984 [YR1984]`, `1985 [YR1985]`, `1986 [YR1986]`, `1987 [YR1987]`, `1988 [YR1988]`, `1989 [YR1989]`, `1990 [YR1990]`, `1991 [YR1991]`, `1992 [YR1992]`, `1993 [YR1993]`, `1994 [YR1994]`, `1995 [YR1995]`, `1996 [YR1996]`, `1997 [YR1997]`, `1998 [YR1998]`, `1999 [YR1999]`, `2000 [YR2000]`), as.character)) %>%
+               pivot_longer(cols = c(`1965 [YR1965]`, `1966 [YR1966]`, `1967 [YR1967]`, `1968 [YR1968]`, `1969 [YR1969]`, `1970 [YR1970]`, `1971 [YR1971]`, `1972 [YR1972]`, `1973 [YR1973]`, `1974 [YR1974]`, `1975 [YR1975]`, `1976 [YR1976]`, `1977 [YR1977]`, `1978 [YR1978]`, `1979 [YR1979]`, `1980 [YR1980]`, `1981 [YR1981]`, `1982 [YR1982]`, `1983 [YR1983]`, `1984 [YR1984]`, `1985 [YR1985]`, `1986 [YR1986]`, `1987 [YR1987]`, `1988 [YR1988]`, `1989 [YR1989]`, `1990 [YR1990]`, `1991 [YR1991]`, `1992 [YR1992]`, `1993 [YR1993]`, `1994 [YR1994]`, `1995 [YR1995]`, `1996 [YR1996]`, `1997 [YR1997]`, `1998 [YR1998]`, `1999 [YR1999]`, `2000 [YR2000]`), names_to = "Year", values_to = "Value")
+
+RF_FDI <- RF_FDI %>%
+  mutate(Year = gsub("\\D*(\\d{4})\\D*", "\\1", Year),
+         Year = as.numeric(Year))
+RF_FDI <- RF_FDI %>%
+  mutate(Year = gsub(".*?(\\d{4}).*", "\\1", Year),
+         Year = as.numeric(Year))
+
+RF_FDI <- RF_FDI %>%
+  select(-`Series Code`, -`Country Code`) %>%
+  pivot_wider(names_from = `Series Name`, values_from = Value) %>%
+  mutate(Year = as.numeric(gsub("X", "", Year)))
+
+RF_FDI <- RF_FDI %>%
+  select(-`NA`)
+
+
+RF_FDI <- RF_FDI[apply(RF_FDI, 1, function(x) all(!is.na(x))), ]
+RF_FDI <- RF_FDI %>%
+  rename(FDI = `Foreign direct investment, net inflows (% of GDP)`,
+         GDP = `GDP growth (annual %)`,
+         Trade = `Trade (% of GDP)`,
+         Inflation = `Inflation, GDP deflator: linked series (annual %)`,
+         IntRate = `Real interest rate (%)`,
+         Exrate = `Official exchange rate (LCU per US$, period average)`,
+         Reserves = `Total reserves (% of total external debt)`)
+library(tidyverse)
+library(caret)
+library(haven)
+
+RF_FDI <- na.omit(RF_FDI)
+
+
+set.seed(53706)
+RF_FDI$FDI <- as.numeric(RF_FDI$FDI)
+
+
+colnames(RF_FDI) <- make.names(colnames(RF_FDI))
+RF_FDI$GDP<- as.numeric(RF_FDI$GDP)
+RF_FDI$Inflation<- as.numeric(RF_FDI$Inflation)
+RF_FDI$IntRate<- as.numeric(RF_FDI$IntRate)
+RF_FDI$Exrate<- as.numeric(RF_FDI$Exrate)
+RF_FDI$Trade<- as.numeric(RF_FDI$Trade)
+RF_FDI$Reserves<- as.numeric(RF_FDI$Reserves)
+RF_FDI$FDI<- as.numeric(RF_FDI$FDI)
+
+
+RF_FDI <- RF_FDI %>%
+  select(-Year)
+library(mice)  # Load the mice package for imputation
+
+imputed_data <- mice(RF_FDI, method = "pmm")  # Impute missing values using predictive mean matching
+RF_FDI <- complete(imputed_data)  # Get the completed dataset
+
+
+trainIndex <- createDataPartition(RF_FDI$FDI, p = .8,
+                                  list = FALSE, 
+                                  times = 1)
+
+train <- RF_FDI[ trainIndex,]
+test <- RF_FDI[-trainIndex,]
+
+```
+
+Indonesia under President Suharto's totalitarian regime experienced significant economic growth, and Foreign Direct Investment (FDI) played a crucial role in the  development of the nation. From 1965 to 2000, Indonesia saw a steady to exponential increase in FDI, particularly from Japan, the United States, and European countries (World Bank, 2023). This influx of foreign investment led to the development of key industries such as oil, gas, and mining, and resulted in increased employment opportunities, rising incomes, and the growth of a middle class. While FDI brought benefits to the Indonesian economy, corruption played a large role in distorting the distribution of the funds. Within the political science literature, particularly Mauro 1995, corruption affects economic growth and discourages investments. However, Indonesia during Suharto's reign is the exception to the analysis. Utilizing predictive machine learning modeling and various investment project examples, western investors saw an opportunity to continue investing in Indonesia regardless of the levels of corruption.   
+
+
+## Data Analysis
+
+The World Bank database provides a rich source of economic indicators for analyzing the influences of foreign direct investment (FDI) in Indonesia from 1965 to 2000. To effectively capture the economic environment and its impact on FDI, several key untransformed indicators should be considered:
+
+GDP Growth Rate: This indicator reflects the annual percentage change in the country's Gross Domestic Product (GDP) and provides insights into the overall economic performance and growth trajectory of Indonesia.
+
+Inflation Rate: Monitoring the annual percentage change in the Consumer Price Index (CPI) can provide information about the inflationary environment in the country.
+
+Real Interest Rates: Considers the lending and deposit interest rates to understand the cost of borrowing and lending in Indonesia.
+
+Real Exchange Rates: Monitoring the exchange rate between the local currency and major international currencies provides insight into the competitiveness of the country and the impact on FDI.
+
+Government Debt to GDP Ratio: This indicator measures the ratio of a country's government debt to its GDP. It can indicate the level of fiscal sustainability and potential risks to the economy.
+
+Total reserves (% of total external debt): Monitoring the level of foreign reserves held by a country's central bank highlights the ability of the government to manage external shocks and provide confidence to foreign investors. The indicator also shows the extent to which a country's foreign reserves can cover its external debt. A higher percentage suggests a higher level of reserves relative to the external debt, which can indicate a stronger ability to meet debt obligations and potentially attract foreign investments.
+
+While these indicators may not specifically capture factors like trade balance, ease of doing business, or political stability, they can still offer valuable insights into the economic environment and its influence on FDI in Indonesia. Each of these indicators provides unique insights into the overall economic performance, fiscal sustainability, and competitiveness of the country. While other indicators may also be relevant, selecting the most appropriate indicators that align with investor incentives and are available over the desired time period is crucial for conducting a comprehensive analysis of FDI in Indonesia. 
+
+
+Initial corollary tests begin with a linear regression log-log model of the variables. The dependent variable is the log of FDI, and the independent variables with observations and corresponding coefficients are the log of GDP growth rate, log of inflation, log of trade, log of the official exchange rate, log of real interest rate, log of total reserves, and $\varepsilon_i$ is the error term with observation $i$ .
+
+$Log_(FDI_i) = \beta_0 + \beta_1 Log_(GDP_i) + \beta_2 Log_(Inflation_i) + \beta_3 Log_(Trade_i) + \beta_4 Log_(Exrate_i) + \beta_5 Log_(IntRate_i) + \beta_6 Log_(Reserves_i) + \varepsilon_i$
+
+```{r ,warning=FALSE, message=FALSE, echo=FALSE}
+# Perform log transformation on predictor and response variables
+RF_FDI$log_GDP <- log(RF_FDI$GDP)
+RF_FDI$log_FDI <- log(RF_FDI$FDI)
+RF_FDI$log_Inflation <- log(RF_FDI$Inflation)
+RF_FDI$log_IntRate <- log(RF_FDI$IntRate)
+RF_FDI$log_Exrate <- log(RF_FDI$Exrate)
+RF_FDI$log_Trade <- log(RF_FDI$Trade)
+RF_FDI$log_Reserves <- log(RF_FDI$Reserves)
+
+RF_FDI <- na.omit(RF_FDI)
+
+# Fit linear regression model using log-log transformed variables
+model <- lm(log_FDI ~ log_GDP + log_Inflation + log_Trade + log_Exrate + log_IntRate + log_Reserves, data = RF_FDI)
+
+# Print the model summary
+```
+Table: Preliminary Model Results
+
+| Variable      | Estimate | Std. Error | t-Value | P-Value    |
+|---------------|----------|------------|---------|------------|
+| (Intercept)   | 5.01991  | 2.33651    | 2.148   | 0.04155*   |
+| log_GDP       | -0.05192 | 0.38837    | -0.134  | 0.89473    |
+| log_Inflation | -0.78953 | 0.65410    | -1.207  | 0.23871    |
+| log_Trade     | 0.89234  | 0.75644    | 1.180   | 0.24924    |
+| log_Exrate    | -0.32545 | 0.25656    | -1.269  | 0.21629    |
+| log_IntRate   | -0.47804 | 0.39878    | -1.199  | 0.24187    |
+| log_Reserves  | -1.25361 | 0.39518    | -3.172  | 0.00398**  |
+
+\begin{scriptsize}
+**Significance codes:**  
+*** \( p<0.001 \)  
+** \( p<0.01 \)  
+* \( p<0.05 \)  
+. \( p<0.1 \)
+\end{scriptsize}
+
+The regression results reveal that the model has a good fit with a R-squared value of 0.4263 and an Adjusted R-squared value of 0.2887. The F-statistic of 3.097 and the p-value of 0.02084 show that the model is significant.
+
+The coefficients of the independent variables show the direction and strength of their relationship with the dependent variable. The intercept term is statistically significant at a 5% level of significance. The  GDP, inflation, trade, official exchange rate, and real interest rate are not statistically significant. However, the total reserves is statistically significant at a 1% level of significance.
+
+The negative coefficient of the total reserves indicates that an increase in total reserves leads to a decrease in FDI. This suggests that foreign investors may be less likely to invest in a country with high reserves due to concerns over exchange rate stability, market saturation, or other factors.
+
+The results indicate that total reserves are an important factor to consider when analyzing FDI in Indonesia. This highlights a possible need to balance the benefits of accumulating reserves with the potential costs of reduced foreign investment. The insignificant coefficients of the other independent variables suggest that they may not be significant predictors of FDI in Indonesia, although this conclusion is limited by the size and missing values of the dataset.
+
+Overall, the linear regression analysis provides cursory insights into the relationship between FDI and the investor aligned independent variables in Indonesia.
+
+
+```{r, results='asis',warning=FALSE, message=FALSE, echo= FALSE}
+library(glmnet)
+# Prepare the data for LASSO regression
+x_train <- as.matrix(train[, -c(1, ncol(train))])  # Excluding the response variable and any unnecessary columns
+y_train <- train$FDI
+
+# Fit LASSO regression model
+lasso_model <- glmnet(x_train, y_train, alpha = 1)  # Set alpha = 1 for LASSO
+
+# Perform cross-validation to determine the optimal lambda
+cv_model <- cv.glmnet(x_train, y_train, alpha = 1)  # Set alpha = 1 for LASSO
+
+# Get the optimal lambda value
+opt_lambda <- cv_model$lambda.min
+
+# Refit the model with the optimal lambda
+lasso_model_opt <- glmnet(x_train, y_train, alpha = 1, lambda = opt_lambda)
+
+# Print the model output
+
+
+# Get the variable names
+variable_names <- colnames(x_train)
+
+# Identify the eliminated variables
+eliminated_variables <- variable_names[as.vector(coef(lasso_model_opt)) == 0]
+
+
+# Predict on the test set
+x_test <- as.matrix(test[, -c(1, ncol(test))])
+y_test <- test$Foreign.direct.investment..net.inflows....of.GDP.
+predictions <- predict(lasso_model_opt, newx = x_test)
+
+# Evaluate the model performance
+mse <- mean((predictions - y_test)^2)  # Mean Squared Error
+
+# Evaluate the model performance
+mse <- mean((predictions - y_test)^2)  # Mean Squared Error
+print(paste("Mean Squared Error:", mse))
+
+
+# Fit LASSO regression model
+lasso_model <- glmnet(x_train, y_train, alpha = 1)  # Set alpha = 1 for LASSO
+
+# Get the coefficient estimates
+coef_estimates <- coef(lasso_model)
+
+# Print the coefficient estimates
+
+```
+
+
+$$
+argmin_b\sum_{i=1}^{n}{(y_t-b_0-\sum_{j=1}^{P}b_jx_{jt})^2+\lambda\sum_{p=1}^{P}{[(\alpha||b_p||+(1-\alpha)||b_p||^2]}}
+\\
+$$
+$$
+\lambda = 0:OLS,
+\\
+$$
+
+
+$$
+\alpha = 0:ridge\ regression,\\
+$$
+
+$$
+\alpha = 1:LASSO
+$$
+
+
+The model used an alpha value of 1, which is equivalent to the Lasso method of regularization. This method helps to perform feature selection, which eliminates variables that do not contribute significantly to the model. Four variables, namely inflation, interest rate, exchange rate, and reserves, were eliminated from the model, which means that they did not significantly contribute to the model's accuracy.
+
+The model's performance was evaluated using mean squared error (MSE). However, the output shows that the MSE was NaN, which means that it could not be computed. It is unclear why this occurred and is possibly linked to the quality of the dataset. 
+
+The output also includes a sparse matrix that shows the values of the coefficients for each variable. The matrix indicates that GDP, exchange rate, trade, and reserves are the only variables that have a non-zero coefficient. The coefficients for each variable indicate how much the variable contributes to the model's output.
+
+The matrix shows that the intercept has a positive coefficient, which means that the model's predicted value will be higher than the actual value. The coefficients for GDP and exchange rate are negative, which means that an increase in these variables will result in a decrease in the model's predicted value. In contrast, the coefficients for Trade and Reserves are positive, which means that an increase in these variables will result in an increase in the model's predicted value.
+
+Overall, the analysis from Indonesia appears to have produced some interesting results that based on predictive performance that the only factors influencing FDI during Suharto's reign was GDP growth and trade. However, the issue with the MSE needs to be resolved before the model's accuracy can be fully evaluated.
+
+
+## Investor relations
+
+The facade of effective and stable fiscal management in Indonesia provided a favorable investment base for Western investors. However, the trend of liberalization of Southeast Asia's markets and the global financial market led to inflated asset prices in the free flow of capital investments. 
+
+As noted by a 1998 congressional report: 
+"By one estimate, 90% of international transactions were accounted for by trade before 1970, and only 10% by capital flows. Today, despite a vast increase in global trade, that ratio has been reversed, with 90% of transactions accounted for by financial flows not directly related to trade in goods and services. Most of these flows have taken the form of highly volatile portfolio (stocks and bonds) investment and short-term loans."(Hunter, 4)  
+
+The profitability of these loans relied heavily on the high growth rates of the Indonesian economy, even though there was a substantial differential gap between the low-interest rates charged by the U.S. and the high domestic interest rates for local currency borrowing (World Bank, 2023). This gap encouraged Asian banks and finance companies to borrow foreign currency at a low cost and re-lend the funds in local currency at relatively high rates of interest, thereby profiting from the spread. However, this also exposed them to exchange rate risk.
+
+The financial and banking reforms from the 1980s structure was a contributing factor to the increase in non-performing loans, which surged to alarming levels in the 1990s, putting pressure on the financial sector, particularly the state-owned banks (Hunter, 171). Suharto's family took advantage of the financial liberalization in the 1980s to expand their business investments, as described by historian Adrian Vickers:
+
+"If a local business started to expand, one of the Suharto family or their friends would ‘offer’ to become a ‘partner’. Shares were signed over to the family member but at no cost. Control over banks gave the conglomerates ready sources of capital. When it was time for annual audits, the books would be handed over accompanied by a gun, a message that the accountant should not identify any irregularities. Auditors for the state bank commissioned to examine projects funded by major loans were told not to report any ‘bad news’." (Vickers, 187)
+
+Suharto adjusted the reforms to align with his family's business interests, and utilized this framework across multiple industries. The financial structure influenced and exacerbated the effects from the Asian Financial Crisis as this incentivized a massive acquisition of short-term loans from foreign creditors. By June 1997, short-term foreign debt had surged to \$35 billion, up from \$19 billion in 1994, surpassing the $20 billion reserved for any potential obligations while transparency international maintained a very corrupt ranged of 15-29 in their corruption index (Hunter, 173). The structure of these short-term loans had, as noted by Woo:
+
+"very little of this debt hedged against the risk of exchange rate movements, as hedging would have added an estimated increase of 6 percentage points to the cost of borrowing. Of the total debt of \$59 billion owed to foreign banks in June 1997, \$40 billion was borrowed by Indonesian corporations, \$12 billion by Indonesian banks, and $7 billion by the government." (Hunter, 172)
+
+The reasoning for the large amounts of debt allocated was that creditors assumed that high growth would yield returns back on the loan agreement for which the Indonesian market boasted three decades of expansionary economic growth. The incentives and spreads from the currency and growth rates allowed for investors to benefit in this manner. 
+
+When it came to the on the ground development and investment, corruption was rampant. A prominent is example is highlighted with the Paiton project.
+
+  “…the Indonesian Paiton project (a 1,200-megawatt electricity plant) completed in 1999 with the strong support of U.S.Ambassador Barry and President Clinton, at a cost of \$2.5 billion. Many things were clearly wrong. First, relatives of President Suharto received a \$50 million loan from American companies, which was to be repaid out of dividends that were unlikely to be paid. More importantly, since the Indonesian investors — who were involved with President Clinton — also controlled the supply of coal to the plant, they were able to price it at levels that made the plant uneconomic. Thirdly, the cost of the plant was well over twice the cost of a similar power facility anywhere else in the world, and anyone with a modicum of electric power experience would have known the cost did not make sense. Fourth, the cost of power was higher than prevailing electricity rates. Lastly, the price of power was in U.S. dollars — since devaluations were a well-known major risk in Indonesia over the past two decades, this meant in local currency terms the power would be priced out of the market with a devaluation. The plant closed and was bankrupt when it was completed, and many investors and lenders suffered major losses, including U.S. government’s Export-Import Bank (Ex-Im) and Overseas Private Investment Corporation (OPIC).” (USAID, 121)
+  
+Development projects under management by Suharto suffered similar fates as the mismanagement continued at the state level. In which "if a local business started to expand, one of the Suharto family or their friends would ‘offer’ to become a ‘partner’. Shares were signed over to the family member but at no cost. Control over banks gave the conglomerates ready sources of capital. When it was time for annual audits, the books would be handed over accompanied by a gun, a message that the accountant should not identify any irregularities. Auditors for the state bank commissioned to examine projects funded by major loans were told not to report any ‘bad news’(Vickers, 88)." The entire embezzlement estimate across the country amounted to over $30 billion exclusively attributed to Suharto and his family (Transparency, 1998).
+
+Indonesia's financial and banking reforms of the 1980s and the subsequent financial liberalization created a framework that allowed for cronyism and corruption to thrive, particularly within Suharto's business interests. The lack of oversight and transparency in investment and development projects led to embezzlement, inflated asset prices, and a reliance on short-term loans from foreign creditors. These loans were largely taken out by Indonesian corporations, banks, and the government, without adequate hedging against exchange rate movements. The result was an unsustainable level of debt that ultimately had catastrophic consequences for the Indonesian economy during the Asian Financial Crisis.
+
+## Concluding Remarks
+Indonesia under President Suharto's regime experienced significant economic growth, with foreign direct investment playing a crucial role in the development of the nation. However, corruption played a large role in distorting the distribution of funds. Linear regression analysis and utilization of LASSO revealed interesting factors influencing FDI during Suharto's reign which leads to possibilities of investments deviating from the standards of international finance. The financial and banking reforms of the 1980s and subsequent liberalization created a framework that allowed for cronyism and corruption to thrive, leading to embezzlement, inflated asset prices, and a reliance on short-term loans from foreign creditors. Western investors profited and continued to uphold a brutal totalitarian regime which highlights the importance of sound fiscal management, transparency, and accountability in promoting long-term fair distributional economic growth and stability.
+
+
+
+
+## Bibliography
+
+Hunter, William C., George G. Kaufman, and Thomas H. Krueger (eds.). The Asian Financial Crisis: Origins, Implications, and Solutions. Kluwer Academic, 1999.
+
+Transparency International. "Suharto’s Family ‘Must Return Looted Wealth." Transparency.Org, 24 May 1998, www.transparency.org/en/press/suhartos-family-must-return-looted-wealth.
+
+The World Bank. "Foreign direct investment, net inflows (BoP, current US$) – Indonesia" [Data file]. Retrieved from https://data.worldbank.org/indicator/BX.KLT.DINV.CD.WD?end=1995&locations=ID&start=1970
+
+Vickers, Adrian. A History of Modern Indonesia. Cambridge University Press, 2005.
+
+USAID. "TOOLS FOR ASSESSING CORRUPTION & INTEGRITY IN INSTITUTIONS A HANDBOOK." 2005, https://www.usaid.gov/sites/default/files/documents/2496/Tools%20for%20Assessing%20Corruption%20%26%20Integrity%20in%20Institutions%20PDF.pdf.
