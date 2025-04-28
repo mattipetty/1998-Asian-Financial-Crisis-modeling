@@ -1,0 +1,415 @@
+---
+title: "World BAnk"
+author: "Mathew Attipetty"
+date: "2025-02-21"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+library(WDI)        # Fetch World Bank data
+library(dplyr)      # Data manipulation
+library(ggplot2)    # Visualization
+library(lmtest)     # Hypothesis testing
+library(sandwich)   # Robust standard errors
+library(car)        # Variance inflation factors (VIF)
+library(fredr)
+library(lubridate)
+library(stargazer)
+library(tidyverse)
+
+# Set FRED API key (replace with your key)
+fredr_set_key("3e18d2fdd280d8720316040a32707a85")
+
+# Fetch World Bank data (same as before)
+indicators <- c(
+  "NY.GDP.MKTP.KD.ZG", "NY.GDP.MKTP.CD", "NE.EXP.GNFS.ZS",
+  "FP.CPI.TOTL.ZG", "PA.NUS.FCRF", "DT.DOD.DECT.CD"
+)
+
+wb_data <- WDI(
+  country = "ID", indicator = indicators, start = 1990, end = 2005
+) %>%
+  rename(
+    gdp_growth = NY.GDP.MKTP.KD.ZG,
+    gdp_current_usd = NY.GDP.MKTP.CD,
+    exports_pct_gdp = NE.EXP.GNFS.ZS,
+    inflation = FP.CPI.TOTL.ZG,
+    exchange_rate = PA.NUS.FCRF,
+    external_debt = DT.DOD.DECT.CD
+  ) %>%
+  mutate(
+    crisis = ifelse(year %in% c(1997, 1998), 1, 0),
+    external_debt_pct_gdp = (external_debt / gdp_current_usd) * 100
+  )
+
+# Fetch oil prices and extract year
+oil_prices <- fredr(
+  series_id = "DCOILBRENTEU",
+  observation_start = as.Date("1990-01-01"),
+  observation_end = as.Date("2005-12-31")
+) %>%
+  rename(oil_price = value) %>%
+  mutate(year = year(date)) %>%  # Now works with lubridate loaded
+  select(year, oil_price)
+
+# Merge with World Bank data
+wb_data <- wb_data %>%
+  left_join(oil_prices, by = "year")
+```
+
+## Including Plots
+
+You can also embed plots, for example:
+
+```{r pressure, echo=FALSE}
+# Run the model
+model <- lm(
+  exports_pct_gdp ~ exchange_rate + external_debt_pct_gdp + crisis + oil_price,
+  data = wb_data
+)
+
+# Summary with robust standard errors
+library(lmtest)
+library(sandwich)
+coeftest(model, vcov = vcovHC(model, type = "HC1"))
+
+summary(model)
+```
+
+```{r}
+library(car)
+vif(model)  # Values >5 indicate issues.
+```
+
+```{r}
+# Find the correct scaling factor based on the ratio of max values
+scaling_factor <- max(wb_data$exports_pct_gdp, na.rm = TRUE) / max(wb_data$exchange_rate, na.rm = TRUE)
+
+ggplot(wb_data, aes(x = year)) +
+  geom_rect(aes(xmin = 1997, xmax = 1998, ymin = -Inf, ymax = Inf),
+            fill = "lightgrey", alpha = 0.5) +  # Shaded area for crisis period
+  geom_line(aes(y = exports_pct_gdp, color = "Exports (% GDP)"), linewidth = 1) +  
+  geom_line(aes(y = exchange_rate * scaling_factor, color = "Exchange Rate (LCU/USD)"), linewidth = 1) +
+  scale_y_continuous(
+    name = "Exports (% GDP)",  
+    sec.axis = sec_axis(~ . / scaling_factor, name = "Exchange Rate (LCU/USD)")
+  ) +
+  labs(
+    title = "Indonesia: Exports and Exchange Rate During the Asian Financial Crisis",
+    x = "Year",
+    color = "Variable",
+    caption = "Shaded area represents the 1997–1998 Asian Financial Crisis.\n\nSource: World Bank Open Data. \"World Development Indicators,\" 2021."
+  ) +
+  scale_color_manual(values = c("Exports (% GDP)" = "blue", "Exchange Rate (LCU/USD)" = "darkgreen")) +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(size = 10, margin = margin(t = 10)),
+    plot.caption.position = "plot"
+  )
+
+
+```
+
+```{r}
+ggplot(wb_data, aes(x = year)) +
+  geom_rect(aes(xmin = 1997, xmax = 1998, ymin = -Inf, ymax = Inf),
+            fill = "lightgrey", alpha = 0.5) +  # Light grey shading
+  geom_line(aes(y = gdp_growth, color = "GDP Growth"), linewidth = 1) +
+  geom_line(aes(y = inflation, color = "Inflation"), linewidth = 1) +
+  labs(
+    title = "GDP Growth and Inflation During the Crisis",
+    y = "Annual % Change",
+    x = "Year",
+    color = "Variable",
+    caption = "Shaded area represents the 1997–1998 Asian Financial Crisis.\n\nSource: World Bank Open Data. \"World Development Indicators,\" 2023."
+  ) +
+  scale_color_manual(values = c("GDP Growth" = "blue", "Inflation" = "orange")) +
+  theme_minimal() +
+  theme(
+    plot.caption = element_text(size = 10, margin = margin(t = 10)),  # Adjust caption spacing
+    plot.caption.position = "plot"  # Ensures it stays outside the graph area
+  )
+
+
+```
+
+```{r}
+# Create stargazer table
+# Create LaTeX table with robust standard errors
+stargazer(model,  
+          type = "latex",  # Generate LaTeX output
+          title = "Determinants of Indonesia's Export Performance (1990–2005)",
+          dep.var.labels = "Exports (\\% of GDP)",
+          covariate.labels = c("Exchange Rate (LCU/USD)", 
+                               "External Debt (\\% GDP)",
+                               "Crisis (1997–1998)", 
+                               "Oil Price (USD/barrel)"),
+          notes = c("Robust standard errors in parentheses.",
+                    "*** p<0.01, ** p<0.05, * p<0.1",
+                    "Source: World Bank Open Data (2023); FRED Economic Data (2023)."),
+          notes.align = "l",
+          se = list(coeftest(model, vcovHC(model, type = "HC1"))[, "Std. Error"]))
+```
+
+```{r}
+stargazer(model,
+          type = "html",
+          title = "Determinants of Indonesia's Export Performance (1990–2005)",
+          dep.var.labels = "Exports (% of GDP)",
+          covariate.labels = c("Exchange Rate (LCU/USD)", 
+                               "External Debt (% GDP)",
+                               "Crisis (1997–1998)", 
+                               "Oil Price (USD/barrel)"),
+          notes = c("Robust standard errors in parentheses.",
+                    "***p<0.01, **p<0.05, *p<0.1",
+                    "Source: World Bank (2023); FRED (2023)."))
+```
+
+```{r}
+############################################################
+# 3) Fetch data for 5 countries from World Bank
+############################################################
+countries <- c("ID", "TH", "MY", "KR", "PH")  
+# ISO codes for Indonesia, Thailand, Malaysia, S. Korea, Philippines
+
+panel_data <- WDI(
+  country   = countries,
+  indicator = c(
+    "NE.EXP.GNFS.ZS",  # Exports (% of GDP)
+    "PA.NUS.FCRF",     # Exchange rate (LCU/USD)
+    "DT.DOD.DECT.CD",  # External debt
+    "SL.UEM.TOTL.ZS"   # Unemployment (% total labor force)
+  ),
+  start = 1990,
+  end   = 2005
+) %>%
+  rename(
+    exports_pct_gdp = NE.EXP.GNFS.ZS,
+    exchange_rate   = PA.NUS.FCRF,
+    external_debt   = DT.DOD.DECT.CD,
+    unemployment    = SL.UEM.TOTL.ZS
+  ) %>%
+  mutate(
+    # Mark the crisis years as 1 (Asian Financial Crisis in 1997–1998)
+    crisis = ifelse(year %in% c(1997, 1998), 1, 0),
+    # Create a nicer country name
+    country = case_when(
+      iso2c == "ID" ~ "Indonesia",
+      iso2c == "TH" ~ "Thailand",
+      iso2c == "MY" ~ "Malaysia",
+      iso2c == "KR" ~ "South Korea",
+      iso2c == "PH" ~ "Philippines",
+      TRUE          ~ iso2c
+    )
+  )
+
+############################################################
+# 4) Fetch oil prices from FRED and merge with panel data
+############################################################
+oil_prices <- fredr(
+  series_id = "DCOILBRENTEU",
+  observation_start = as.Date("1990-01-01"),
+  observation_end   = as.Date("2005-12-31")
+) %>%
+  rename(oil_price = value) %>%
+  mutate(year = year(date)) %>%
+  select(year, oil_price)
+
+# Merge the two datasets by 'year'
+panel_data <- panel_data %>%
+  left_join(oil_prices, by = "year")
+
+############################################################
+# 5) Run a two‐way fixed effects model with plm
+############################################################
+# NOTE: "within" = fixed effects estimator.
+#       effect = "twoways" => includes both country and year FE.
+model_twfe <- plm(
+  exports_pct_gdp ~ exchange_rate + external_debt + crisis + oil_price + unemployment,
+  data   = panel_data,
+  index  = c("country", "year"), 
+  model  = "within",     # Fixed effects
+  effect = "twoways"     # Country AND year fixed effects
+)
+
+############################################################
+# 6) Check summary
+############################################################
+summary(model_twfe)
+```
+
+```{r}
+############################################################
+# 3) Fetch daily Brent oil prices from FRED
+############################################################
+oil_daily <- fredr(
+  series_id         = "DCOILBRENTEU",
+  observation_start = as.Date("1990-01-01"),
+  observation_end   = as.Date("2005-12-31")
+) %>%
+  rename(oil_price_daily = value) %>%
+  mutate(year = year(date))
+
+# Aggregate daily to annual average oil price
+oil_annual <- oil_daily %>%
+  group_by(year) %>%
+  summarize(oil_price = mean(oil_price_daily, na.rm = TRUE))
+
+############################################################
+# 4) Fetch annual data for 5 countries from WDI
+############################################################
+countries <- c("ID", "TH", "MY", "KR", "PH")  # Indonesia, Thailand, Malaysia, S. Korea, Philippines
+
+# World Bank indicators for 1990–2005
+panel_data <- WDI(
+  country   = countries,
+  indicator = c(
+    "NE.EXP.GNFS.ZS",  # Exports (% of GDP)
+    "PA.NUS.FCRF",     # Exchange rate (LCU/USD)
+    "DT.DOD.DECT.CD",  # External debt
+    "SL.UEM.TOTL.ZS"   # Unemployment (% labor force)
+  ),
+  start = 1990,
+  end   = 2005
+) %>%
+  rename(
+    exports_pct_gdp = NE.EXP.GNFS.ZS,
+    exchange_rate   = PA.NUS.FCRF,
+    external_debt   = DT.DOD.DECT.CD,
+    unemployment    = SL.UEM.TOTL.ZS
+  ) %>%
+  mutate(
+    crisis = ifelse(year %in% c(1997, 1998), 1, 0),
+    # More readable country labels
+    country = case_when(
+      iso2c == "ID" ~ "Indonesia",
+      iso2c == "TH" ~ "Thailand",
+      iso2c == "MY" ~ "Malaysia",
+      iso2c == "KR" ~ "South Korea",
+      iso2c == "PH" ~ "Philippines",
+      TRUE          ~ iso2c
+    )
+  )
+
+############################################################
+# 5) Merge annual oil price data (1 row/year) with WDI data
+############################################################
+panel_data <- panel_data %>%
+  left_join(oil_annual, by = "year")
+
+# Ensure one row per (country, year)
+panel_data <- panel_data %>%
+  distinct(country, year, .keep_all = TRUE)
+
+############################################################
+# 6) Quick check: variation & coverage
+############################################################
+# Uncomment these lines to diagnose any missing or zero-variance variables
+# panel_data %>%
+#   group_by(country) %>%
+#   summarize(
+#     var_exch       = var(exchange_rate,   na.rm = TRUE),
+#     var_debt       = var(external_debt,   na.rm = TRUE),
+#     var_unempl     = var(unemployment,    na.rm = TRUE),
+#     var_crisis     = var(crisis,          na.rm = TRUE),
+#     var_oil_price  = var(oil_price,       na.rm = TRUE)
+#   )
+
+############################################################
+# 7) Example 1: Pooled OLS (no fixed effects)
+############################################################
+model_pooled <- lm(
+  exports_pct_gdp ~ exchange_rate + external_debt + oil_price + unemployment + crisis,
+  data = panel_data
+)
+summary(model_pooled)
+
+############################################################
+# 8) Example 2: Country Fixed Effects with plm
+############################################################
+# We'll use only country FE here. If you want year FE also, set effect="twoways"
+model_fe <- plm(
+  exports_pct_gdp ~ exchange_rate + external_debt + oil_price + unemployment + crisis,
+  data   = panel_data,
+  index  = c("country", "year"),
+  model  = "within",      # Fixed effects
+  effect = "individual"   # Country FE only
+)
+summary(model_fe)
+
+# If you prefer two-way FE (country + year), use:
+# effect = "twoways"
+# But watch for perfect collinearity (especially if crisis=1 for all countries in the same years).
+```
+
+```{r}
+panel_data %>%
+  group_by(country) %>%
+  summarize(
+    var_exch       = var(exchange_rate, na.rm = TRUE),
+    var_debt       = var(external_debt, na.rm = TRUE),
+    var_unempl     = var(unemployment,  na.rm = TRUE),
+    var_oil        = var(oil_price,     na.rm = TRUE),
+    count_rows     = n(),
+    # Count how many NA in each column to see if entire column is missing for this country
+    na_exch        = sum(is.na(exchange_rate)),
+    na_debt        = sum(is.na(external_debt)),
+    na_unempl      = sum(is.na(unemployment)),
+    na_oil         = sum(is.na(oil_price))
+  )
+```
+
+```{r}
+library(plm)
+
+# 1) Exchange rate only
+model_fe1 <- plm(
+  exports_pct_gdp ~ exchange_rate,
+  data   = panel_data,
+  index  = c("country", "year"),
+  model  = "within",
+  effect = "individual"
+)
+summary(model_fe1)  # Should work
+
+# 2) Add external_debt
+model_fe2 <- plm(
+  exports_pct_gdp ~ exchange_rate + external_debt,
+  data   = panel_data,
+  index  = c("country", "year"),
+  model  = "within",
+  effect = "individual"
+)
+summary(model_fe2)  # Fails or not?
+
+# 3) Add oil_price
+model_fe3 <- plm(
+  exports_pct_gdp ~ exchange_rate + external_debt + oil_price,
+  data   = panel_data,
+  index  = c("country", "year"),
+  model  = "within",
+  effect = "individual"
+)
+summary(model_fe3)
+
+# 4) Finally add unemployment
+model_fe4 <- plm(
+  exports_pct_gdp ~ exchange_rate + external_debt + oil_price + unemployment,
+  data   = panel_data,
+  index  = c("country", "year"),
+  model  = "within",
+  effect = "individual"
+)
+summary(model_fe4)
+```
+
